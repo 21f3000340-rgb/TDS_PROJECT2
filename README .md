@@ -1,4 +1,4 @@
-# 🚀 LLM Quiz Solver – Autonomous Multi-Step Agent for IITM TDS Project
+# 🚀 Autonomous LLM-Based Quiz Solver for the IITM TDS Project
 
 <div align="center">
 
@@ -14,7 +14,7 @@
 
 
 
-### 🤖 A smart, multi-step agent that navigates, analyzes, computes, and solves the entire**IITM TDS LLM Analysis Quiz automatically.**
+### 🤖 A smart, multi-step agent that navigates, analyzes, computes, and solves the entire **IITM TDS LLM Analysis Quiz automatically.**
 
 
 [![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/21f3000340-rgb/TDS_PROJECT2)
