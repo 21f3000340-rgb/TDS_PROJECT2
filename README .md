@@ -107,35 +107,53 @@
 ## 🏗 Architecture
 
 ```mermaid
-graph TB
-    A[🌐 FastAPI Server] -->|POST /solve| B[🤖 LangGraph Agent]
-    B --> C[🧠 Gemini 2.5 Flash LLM]
-    C --> D{Decision Engine}
-    D -->|Tool Selection| E[🔍 Web Scraper]
-    D -->|Tool Selection| F[📥 File Downloader]
-    D -->|Tool Selection| G[⚙️ Code Executor]
-    D -->|Tool Selection| H[📤 Request Sender]
-    D -->|Tool Selection| I[📦 Dependency Installer]
-    E --> J[📊 Data Processing]
+flowchart TB
+    %% ===== Main Flow =====
+    A[📡 FastAPI Server<br><sub>Receives /solve request</sub>] 
+        --> B[🤖 LLM Agent Engine<br><sub>LangGraph Orchestrator</sub>]
+
+    B --> C[🧠 Gemini 2.5 Flash<br><sub>LLM Reasoning & Planning</sub>]
+
+    C --> D{📍 Decision Module<br><sub>Selects the right tool</sub>}
+
+    %% ===== Tools =====
+    D --> E[🔍 Web Scraper<br><sub>Playwright-based</sub>]
+    D --> F[📥 File Downloader<br><sub>CSV, PDF, Media</sub>]
+    D --> G[⚙️ Code Executor<br><sub>Sandboxed Python</sub>]
+    D --> H[📤 HTTP Sender<br><sub>POST/GET/Submit</sub>]
+    D --> I[📦 Dependency Installer<br><sub>Add missing packages</sub>]
+
+    %% ===== Processing =====
+    E --> J[📊 Data Processing Layer<br><sub>Tables • Text • Media</sub>]
     F --> J
     G --> J
-    J --> K[✅ Answer Submission]
-    K --> L{Next URL?}
+
+    %% ===== Submission =====
+    J --> K[✅ Answer Submission<br><sub>Send computed output</sub>]
+
+    K --> L{🔗 Next Question URL?}
+
     L -->|Yes| B
-    L -->|No| M[🎉 Quiz Complete]
-    
-    style A fill:#FF6B6B,stroke:#C92A2A,stroke-width:3px,color:#fff
-    style B fill:#4ECDC4,stroke:#0B7285,stroke-width:3px,color:#fff
-    style C fill:#95E1D3,stroke:#087F5B,stroke-width:3px,color:#000
-    style D fill:#FFE66D,stroke:#F59F00,stroke-width:3px,color:#000
-    style E fill:#A8DADC,stroke:#1864AB,stroke-width:2px,color:#000
-    style F fill:#A8DADC,stroke:#1864AB,stroke-width:2px,color:#000
-    style G fill:#A8DADC,stroke:#1864AB,stroke-width:2px,color:#000
-    style H fill:#A8DADC,stroke:#1864AB,stroke-width:2px,color:#000
-    style I fill:#A8DADC,stroke:#1864AB,stroke-width:2px,color:#000
-    style J fill:#B197FC,stroke:#5F3DC4,stroke-width:2px,color:#fff
-    style K fill:#74C0FC,stroke:#1971C2,stroke-width:2px,color:#000
-    style M fill:#51CF66,stroke:#2F9E44,stroke-width:3px,color:#fff
+    L -->|No| M[🎉 Quiz Complete<br><sub>End of chain</sub>]
+
+    %% ===== Styling =====
+    classDef main fill:#0F172A,stroke:#334155,color:#F8FAFC,stroke-width:2px;
+    classDef agent fill:#1E293B,stroke:#475569,color:#F1F5F9,stroke-width:2px;
+    classDef llm fill:#0EA5E9,stroke:#0369A1,color:white,stroke-width:2px;
+    classDef decision fill:#F59E0B,stroke:#B45309,color:#1F2937,stroke-width:2px;
+    classDef tool fill:#334155,stroke:#1E293B,color:#E2E8F0,stroke-width:1.5px;
+    classDef process fill:#6366F1,stroke:#4338CA,color:white,stroke-width:1.5px;
+    classDef final fill:#10B981,stroke:#047857,color:white,stroke-width:2px;
+
+    class A main
+    class B agent
+    class C llm
+    class D decision
+    class E,F,G,H,I tool
+    class J process
+    class K process
+    class M final
+
 ```
 
 ---
