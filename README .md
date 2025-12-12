@@ -572,6 +572,6 @@ It can **scrape**, **compute**, **analyze**, **visualize**, and **submit answers
 
 ---
 
-**Built with 🤖 AI, 💡 Intelligence, and ☕ Coffee**
+**Built with 🤖 AI, 💡 Intelligence**
 
 </div>
