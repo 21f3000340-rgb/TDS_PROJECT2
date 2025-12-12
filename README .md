@@ -161,23 +161,32 @@ flowchart TB
 ## 📁 Project Structure
 
 ```
-LLM-Quiz-Solver-Enhanced/
+📁 TDS_PROJECT2/
 │
-├── 🐍 main.py                # FastAPI server with /solve endpoint
-├── 🤖 agent.py               # LangGraph state machine & LLM orchestration
-├── 📂 tools/                 # All modular tools
-│   ├── 🔍 web_scraper.py
-│   ├── 📥 download_file.py
-│   ├── 📤 send_request.py
-│   ├── ⚙️ code_generate_and_run.py
-│   └── 📦 add_dependencies.py
+├── 🐍 main.py                        
+│      └─ FastAPI app (exposes /solve, /healthz)
 │
-├── 💾 shared_store.py        # Shared state for timeouts, base64 store
-├── 📋 requirements.txt
-├── 📦 pyproject.toml
-├── 🐳 Dockerfile             # Playwright + UV + FastAPI environment
-├── 📖 README.md
-└── ⚙️ .env                   # Environment variables
+├── 🤖 agent.py                       
+│      └─ LLM agent brain: LangGraph state machine + planning logic
+│
+├── 🧰 tools/                         # Modular tool suite
+│   │
+│   ├── 🔍 web_scraper.py            # Playwright-powered dynamic scraper
+│   ├── 📥 download_file.py          # PDF / CSV / Media downloader
+│   ├── 📤 send_request.py           # POST/GET request handler
+│   ├── ⚙️ code_generate_and_run.py  # Safe Python code executor (sandboxed)
+│   └── 📦 add_dependencies.py       # Installs missing libraries on the fly
+│
+├── 💾 shared_store.py                # Shared memory for base64 files, timeouts
+│
+├── 📄 requirements.txt               # Python dependencies
+├── 🧩 pyproject.toml                 # Environment metadata (uv / poetry style)
+│
+├── 🐳 Dockerfile                     # Chromium + Playwright + FastAPI container
+├── 📘 README.md                      # Documentation (this file)
+│
+└── 🔐 .env                           # Secrets (email, key, tokens) – not committed
+
 ```
 
 ---
