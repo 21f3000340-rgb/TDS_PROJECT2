@@ -6,7 +6,8 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 from langgraph.prebuilt import ToolNode
 from tools import (
     get_rendered_html, download_file, post_request,
-    run_code, add_dependencies, ocr_image_tool, transcribe_audio, encode_image_to_base64
+    run_code, add_dependencies, ocr_image_tool, transcribe_audio,
+    encode_image_to_base64
 )
 
 from typing import TypedDict, Annotated, List
@@ -207,17 +208,40 @@ app = graph.compile()
 
 
 # -----------------------------------------
-# RUNNER
+# FIXED RUNNER — NOW ACCEPTS FULL DATA
 # -----------------------------------------
-def run_agent(url: str):
+def run_agent(data: dict):
+    """
+    Data passed from FastAPI:
+    {
+        "email": "...",
+        "secret": "...",
+        "url": "https://..."
+    }
+    """
+
+    url = data.get("url")
+    if not url:
+        print("ERROR: No URL provided to run_agent()")
+        return
+
+    # Set environment values for the agent
+    os.environ["url"] = url
+    os.environ["offset"] = "0"
+
+    print(f"Agent starting for URL: {url}")
+
     initial_messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": url}
     ]
 
-    app.invoke(
-        {"messages": initial_messages},
-        config={"recursion_limit": RECURSION_LIMIT}
-    )
+    try:
+        app.invoke(
+            {"messages": initial_messages},
+            config={"recursion_limit": RECURSION_LIMIT}
+        )
+        print("Agent finished all tasks.")
 
-    print("Agent finished all tasks.")
+    except Exception as e:
+        print(f"Agent crashed: {e}")
