@@ -26,23 +26,22 @@ RECURSION_LIMIT = 5000
 MAX_TOKENS = 60000
 
 
-# -----------------------------------------
+# ---------------------------------------------------------
 # STATE
-# -----------------------------------------
+# ---------------------------------------------------------
 class AgentState(TypedDict):
     messages: Annotated[List, add_messages]
 
 
 TOOLS = [
-    run_code, get_rendered_html, download_file,
-    post_request, add_dependencies, ocr_image_tool,
-    transcribe_audio, encode_image_to_base64
+    run_code, get_rendered_html, download_file, post_request,
+    add_dependencies, ocr_image_tool, transcribe_audio, encode_image_to_base64
 ]
 
 
-# -----------------------------------------
+# ---------------------------------------------------------
 # LLM INIT
-# -----------------------------------------
+# ---------------------------------------------------------
 rate_limiter = InMemoryRateLimiter(
     requests_per_second=4 / 60,
     check_every_n_seconds=1,
@@ -56,9 +55,9 @@ llm = init_chat_model(
 ).bind_tools(TOOLS)
 
 
-# -----------------------------------------
+# ---------------------------------------------------------
 # SYSTEM PROMPT
-# -----------------------------------------
+# ---------------------------------------------------------
 SYSTEM_PROMPT = f"""
 You are an autonomous quiz-solving agent.
 
@@ -71,30 +70,30 @@ Your job:
 
 Rules:
 - For base64 image encoding: ALWAYS use encode_image_to_base64 (tool).
-- Never hallucinate links or fields.
-- Never shorten submit URLs.
+- Never hallucinate URLs or fields.
+- Never shorten endpoints.
 - Always inspect server output.
 - Never stop early.
 - Use tools for HTML, files, OCR, code, or audio as needed.
 
-Every request must include:
+Always include:
 email = {EMAIL}
 secret = {SECRET}
 """
 
 
-# -----------------------------------------
+# ---------------------------------------------------------
 # HANDLE MALFORMED JSON
-# -----------------------------------------
+# ---------------------------------------------------------
 def handle_malformed_node(state: AgentState):
-    print("---- MALFORMED JSON DETECTED. RETRYING ----")
+    print("⚠️ MALFORMED JSON DETECTED — Asking LLM to retry")
     return {
         "messages": [
             {
                 "role": "user",
                 "content": (
-                    "SYSTEM ERROR: Your previous tool call had invalid JSON.\n"
-                    "Rewrite the JSON correctly. Escape quotes and newlines.\n"
+                    "SYSTEM ERROR: The last tool call had INVALID JSON.\n"
+                    "Rewrite the tool call with correct JSON (escape quotes, newlines).\n"
                     "Try again now."
                 )
             }
@@ -102,33 +101,35 @@ def handle_malformed_node(state: AgentState):
     }
 
 
-# -----------------------------------------
+# ---------------------------------------------------------
 # MAIN AGENT NODE
-# -----------------------------------------
+# ---------------------------------------------------------
 def agent_node(state: AgentState):
+
     now = time.time()
     cur_url = os.getenv("url")
     prev_time = url_time.get(cur_url)
     offset = os.getenv("offset", "0")
 
-    # -------- TIMEOUT CHECK --------
+    # Timeout logic
     if prev_time:
         prev_time = float(prev_time)
         diff = now - prev_time
 
         if diff >= 180 or (offset != "0" and (now - float(offset)) > 90):
-            print(f"Timeout hit ({diff}s). Sending forced wrong submission.")
+            print(f"⏳ TIMEOUT ({diff}s) — Forcing wrong submission")
 
             timeout_msg = HumanMessage(
                 content=(
-                    "You took too long (over 180 seconds). Immediately call "
-                    "`post_request` and submit a WRONG answer to finish the task."
+                    "You exceeded the allowed time (180 seconds). "
+                    "Immediately submit a WRONG answer using `post_request`."
                 )
             )
+
             result = llm.invoke(state["messages"] + [timeout_msg])
             return {"messages": [result]}
 
-    # -------- TRIMMING --------
+    # Trim message history
     trimmed = trim_messages(
         messages=state["messages"],
         max_tokens=MAX_TOKENS,
@@ -138,51 +139,50 @@ def agent_node(state: AgentState):
         token_counter=llm
     )
 
-    # Ensure at least one human message exists
+    # Ensure HumanMessage exists
     if not any(m.type == "human" for m in trimmed):
-        print("Context trimmed too far. Adding reminder.")
-        trimmed.append(
-            HumanMessage(content=f"Continue processing URL: {cur_url}")
-        )
+        reminder = HumanMessage(content=f"Continue solving the quiz at {cur_url}")
+        trimmed.append(reminder)
 
-    print(f"--- Running LLM with {len(trimmed)} messages ---")
+    print(f"🤖 LLM INVOKE — {len(trimmed)} messages")
     result = llm.invoke(trimmed)
+
     return {"messages": [result]}
 
 
-# -----------------------------------------
+# ---------------------------------------------------------
 # ROUTING LOGIC
-# -----------------------------------------
+# ---------------------------------------------------------
 def route(state):
     last = state["messages"][-1]
 
-    # malformed function call
+    # Malformed tool call → retry
     meta = getattr(last, "response_metadata", {})
     if meta and meta.get("finish_reason") == "MALFORMED_FUNCTION_CALL":
         return "handle_malformed"
 
-    # valid tool call
+    # Valid tool call
     if getattr(last, "tool_calls", None):
-        print("Routing → tools")
+        print("🔧 ROUTE → tools")
         return "tools"
 
-    # check END signal
-    content = getattr(last, "content", None)
+    # END check
+    content = getattr(last, "content", "")
 
     if isinstance(content, str) and content.strip() == "END":
         return END
 
-    if isinstance(content, list) and content and isinstance(content[0], dict):
+    if isinstance(content, list) and len(content) and isinstance(content[0], dict):
         if content[0].get("text", "").strip() == "END":
             return END
 
-    print("Routing → agent")
+    print("🔁 ROUTE → agent")
     return "agent"
 
 
-# -----------------------------------------
-# GRAPH SETUP
-# -----------------------------------------
+# ---------------------------------------------------------
+# GRAPH DEFINITION
+# ---------------------------------------------------------
 graph = StateGraph(AgentState)
 
 graph.add_node("agent", agent_node)
@@ -207,29 +207,25 @@ graph.add_conditional_edges(
 app = graph.compile()
 
 
-# -----------------------------------------
-# FIXED RUNNER — NOW ACCEPTS FULL DATA
-# -----------------------------------------
-def run_agent(data: dict):
+# ---------------------------------------------------------
+# RUN AGENT (FINAL FIXED VERSION)
+# ---------------------------------------------------------
+def run_agent(url: str):
     """
-    Data passed from FastAPI:
-    {
-        "email": "...",
-        "secret": "...",
-        "url": "https://..."
-    }
+    Called by FastAPI in a background task.
+    FastAPI passes only the URL string.
     """
 
-    url = data.get("url")
     if not url:
-        print("ERROR: No URL provided to run_agent()")
+        print("❌ run_agent() received empty URL")
         return
 
-    # Set environment values for the agent
+    # Prepare runtime environment
     os.environ["url"] = url
     os.environ["offset"] = "0"
+    url_time[url] = time.time()
 
-    print(f"Agent starting for URL: {url}")
+    print(f"🚀 Agent starting for: {url}")
 
     initial_messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -241,7 +237,8 @@ def run_agent(data: dict):
             {"messages": initial_messages},
             config={"recursion_limit": RECURSION_LIMIT}
         )
-        print("Agent finished all tasks.")
+
+        print("🎉 Agent completed all tasks!")
 
     except Exception as e:
-        print(f"Agent crashed: {e}")
+        print("💥 AGENT CRASHED:", e)
