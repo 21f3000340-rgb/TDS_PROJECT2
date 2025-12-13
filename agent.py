@@ -6,8 +6,8 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 from langgraph.prebuilt import ToolNode
 from tools import (
     get_rendered_html, download_file, post_request,
-    run_code, add_dependencies, ocr_image_tool, transcribe_audio,
-    encode_image_to_base64
+    run_code, add_dependencies, ocr_image_tool,
+    transcribe_audio, encode_image_to_base64
 )
 
 from typing import TypedDict, Annotated, List
@@ -26,22 +26,23 @@ RECURSION_LIMIT = 5000
 MAX_TOKENS = 60000
 
 
-# ---------------------------------------------------------
+# ----------------------------------------
 # STATE
-# ---------------------------------------------------------
+# ----------------------------------------
 class AgentState(TypedDict):
     messages: Annotated[List, add_messages]
 
 
 TOOLS = [
     run_code, get_rendered_html, download_file, post_request,
-    add_dependencies, ocr_image_tool, transcribe_audio, encode_image_to_base64
+    add_dependencies, ocr_image_tool, transcribe_audio,
+    encode_image_to_base64
 ]
 
 
-# ---------------------------------------------------------
+# ----------------------------------------
 # LLM INIT
-# ---------------------------------------------------------
+# ----------------------------------------
 rate_limiter = InMemoryRateLimiter(
     requests_per_second=4 / 60,
     check_every_n_seconds=1,
@@ -55,45 +56,43 @@ llm = init_chat_model(
 ).bind_tools(TOOLS)
 
 
-# ---------------------------------------------------------
+# ----------------------------------------
 # SYSTEM PROMPT
-# ---------------------------------------------------------
+# ----------------------------------------
 SYSTEM_PROMPT = f"""
 You are an autonomous quiz-solving agent.
 
 Your job:
-1. Load each quiz page from the given URL.
-2. Extract instructions, parameters, and submit endpoint.
-3. Solve tasks exactly.
-4. Submit answers ONLY via the correct endpoint.
-5. Follow new URLs until done, then output END.
+1. Load the quiz page from a given URL.
+2. Extract instructions and submit endpoint.
+3. Solve tasks EXACTLY.
+4. Submit ONLY via the correct endpoint.
+5. Follow new URLs until none remain.
 
 Rules:
-- For base64 image encoding: ALWAYS use encode_image_to_base64 (tool).
-- Never hallucinate URLs or fields.
-- Never shorten endpoints.
-- Always inspect server output.
-- Never stop early.
-- Use tools for HTML, files, OCR, code, or audio as needed.
-
-Always include:
-email = {EMAIL}
-secret = {SECRET}
+- ALWAYS use encode_image_to_base64 for base64 encoding.
+- NEVER hallucinate URLs or fields.
+- NEVER shorten endpoints.
+- ALWAYS inspect server output carefully.
+- NEVER stop early.
+- ALWAYS include:
+    email = {EMAIL}
+    secret = {SECRET}
 """
 
 
-# ---------------------------------------------------------
-# HANDLE MALFORMED JSON
-# ---------------------------------------------------------
+# ----------------------------------------
+# MALFORMED JSON NODE
+# ----------------------------------------
 def handle_malformed_node(state: AgentState):
-    print("⚠️ MALFORMED JSON DETECTED — Asking LLM to retry")
+    print("⚠️ Malformed JSON detected — requesting retry.")
     return {
         "messages": [
             {
                 "role": "user",
                 "content": (
-                    "SYSTEM ERROR: The last tool call had INVALID JSON.\n"
-                    "Rewrite the tool call with correct JSON (escape quotes, newlines).\n"
+                    "SYSTEM ERROR: Your last tool call had INVALID JSON.\n"
+                    "Rewrite the JSON correctly. Escape quotes/newlines.\n"
                     "Try again now."
                 )
             }
@@ -101,9 +100,9 @@ def handle_malformed_node(state: AgentState):
     }
 
 
-# ---------------------------------------------------------
+# ----------------------------------------
 # MAIN AGENT NODE
-# ---------------------------------------------------------
+# ----------------------------------------
 def agent_node(state: AgentState):
 
     now = time.time()
@@ -113,36 +112,29 @@ def agent_node(state: AgentState):
 
     # Timeout logic
     if prev_time:
-        prev_time = float(prev_time)
-        diff = now - prev_time
+        diff = now - float(prev_time)
 
-        if diff >= 180 or (offset != "0" and (now - float(offset)) > 90):
-            print(f"⏳ TIMEOUT ({diff}s) — Forcing wrong submission")
+        if diff >= 180 or (offset != "0" and now - float(offset) > 90):
+            print(f"⏳ Timeout ({diff}s) — sending forced wrong submission")
 
             timeout_msg = HumanMessage(
-                content=(
-                    "You exceeded the allowed time (180 seconds). "
-                    "Immediately submit a WRONG answer using `post_request`."
-                )
+                content="You exceeded time. Submit a wrong answer via `post_request`."
             )
-
             result = llm.invoke(state["messages"] + [timeout_msg])
             return {"messages": [result]}
 
-    # Trim message history
+    # Trim messages
     trimmed = trim_messages(
-        messages=state["messages"],
+        state["messages"],
         max_tokens=MAX_TOKENS,
-        strategy="last",
         include_system=True,
         start_on="human",
+        strategy="last",
         token_counter=llm
     )
 
-    # Ensure HumanMessage exists
     if not any(m.type == "human" for m in trimmed):
-        reminder = HumanMessage(content=f"Continue solving the quiz at {cur_url}")
-        trimmed.append(reminder)
+        trimmed.append(HumanMessage(content=f"Continue solving URL: {cur_url}"))
 
     print(f"🤖 LLM INVOKE — {len(trimmed)} messages")
     result = llm.invoke(trimmed)
@@ -150,39 +142,35 @@ def agent_node(state: AgentState):
     return {"messages": [result]}
 
 
-# ---------------------------------------------------------
-# ROUTING LOGIC
-# ---------------------------------------------------------
+# ----------------------------------------
+# ROUTER
+# ----------------------------------------
 def route(state):
     last = state["messages"][-1]
 
-    # Malformed tool call → retry
     meta = getattr(last, "response_metadata", {})
-    if meta and meta.get("finish_reason") == "MALFORMED_FUNCTION_CALL":
+    if meta.get("finish_reason") == "MALFORMED_FUNCTION_CALL":
         return "handle_malformed"
 
-    # Valid tool call
     if getattr(last, "tool_calls", None):
-        print("🔧 ROUTE → tools")
+        print("🔧 Route → tools")
         return "tools"
 
-    # END check
     content = getattr(last, "content", "")
-
     if isinstance(content, str) and content.strip() == "END":
         return END
 
-    if isinstance(content, list) and len(content) and isinstance(content[0], dict):
+    if isinstance(content, list) and content and isinstance(content[0], dict):
         if content[0].get("text", "").strip() == "END":
             return END
 
-    print("🔁 ROUTE → agent")
+    print("🔁 Route → agent")
     return "agent"
 
 
-# ---------------------------------------------------------
-# GRAPH DEFINITION
-# ---------------------------------------------------------
+# ----------------------------------------
+# GRAPH SETUP
+# ----------------------------------------
 graph = StateGraph(AgentState)
 
 graph.add_node("agent", agent_node)
@@ -207,29 +195,31 @@ graph.add_conditional_edges(
 app = graph.compile()
 
 
-# ---------------------------------------------------------
-# RUN AGENT (FINAL FIXED VERSION)
-# ---------------------------------------------------------
-def run_agent(url: str):
+# ----------------------------------------
+# FINAL FIXED run_agent()
+# ----------------------------------------
+def run_agent(data: dict):
     """
-    Called by FastAPI in a background task.
-    FastAPI passes only the URL string.
+    FastAPI passes the FULL dict: {email, secret, url}.
     """
-
-    if not url:
-        print("❌ run_agent() received empty URL")
+    if not isinstance(data, dict):
+        print("❌ run_agent() expected dict, got:", data)
         return
 
-    # Prepare runtime environment
-    os.environ["url"] = url
+    url = data.get("url")
+    if not url:
+        print("❌ URL missing in run_agent payload:", data)
+        return
+
+    os.environ["url"] = str(url)
     os.environ["offset"] = "0"
-    url_time[url] = time.time()
+    url_time[str(url)] = time.time()
 
     print(f"🚀 Agent starting for: {url}")
 
     initial_messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": url}
+        {"role": "user", "content": str(url)}
     ]
 
     try:
@@ -237,8 +227,7 @@ def run_agent(url: str):
             {"messages": initial_messages},
             config={"recursion_limit": RECURSION_LIMIT}
         )
-
         print("🎉 Agent completed all tasks!")
 
     except Exception as e:
-        print("💥 AGENT CRASHED:", e)
+        print("💥 Agent crashed:", e)
